@@ -1,6 +1,6 @@
 import { ObservableDataSource } from './data-source';
 
-export interface PersistencyCallbacks<T, IdType> {
+export interface ObservablePersistencyCallbacks<T, IdType> {
     all: () => ObservableDataSource<T[]>;
     clear?: () => ObservableDataSource<void | boolean>;
     get: (itemIds: IdType[]) => ObservableDataSource<T[]>;

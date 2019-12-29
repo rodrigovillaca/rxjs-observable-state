@@ -10,7 +10,7 @@ import {
     throwError
 } from 'rxjs';
 
-import { PersistencyCallbacks } from './persistency-callbacks';
+import { ObservablePersistencyCallbacks } from './persistency-callbacks';
 
 import { ObservableStateEncoding } from './encoding';
 
@@ -23,7 +23,7 @@ import * as hash from 'object-hash';
 export interface ObservableStateOptions<T, IdType> {
     idProperty: string;
     singleEntityMode?: boolean;
-    persistencyCallbacks?: PersistencyCallbacks<T, IdType>;
+    persistencyCallbacks?: ObservablePersistencyCallbacks<T, IdType>;
     encoding?: ObservableStateEncoding;
 }
 export class ObservableState<T, IdType> {
@@ -31,7 +31,7 @@ export class ObservableState<T, IdType> {
     private readonly observables: { [id: string]: Observable<T> } = {};
 
     readonly encoding: ObservableStateEncoding;
-    readonly persistencyCallbacks?: PersistencyCallbacks<T, IdType>;
+    readonly persistencyCallbacks?: ObservablePersistencyCallbacks<T, IdType>;
     readonly idProperty: string;
     readonly singleEntityMode: boolean;
 

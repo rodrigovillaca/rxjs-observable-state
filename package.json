@@ -1,0 +1,29 @@
+{
+    "name": "rxjs-observable-state",
+    "version": "0.0.9",
+    "description": "Simple and effective state management for rxjs/angular/ionic applications.",
+    "repository": "https://rodrigovillaca@github.com/rodrigovillaca/rxjs-observable-state.git",
+    "author": "Rodrigo Villaca <rodrigo.villaca.mcse@gmail.com>",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "module": "dist/index.es.js",
+    "files": [
+        "dist"
+    ],
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "rollup -c",
+        "watch": "rollup -cw"
+    },
+    "devDependencies": {
+        "rollup": "^1.27.14",
+        "rollup-plugin-typescript2": "^0.25.3",
+        "typescript": "^3.7.4"
+    },
+    "dependencies": {
+        "@types/object-hash": "^1.3.0",
+        "object-hash": "^2.0.1",
+        "rxjs": "^6.0.1",
+        "util": "^0.12.1"
+    }
+}

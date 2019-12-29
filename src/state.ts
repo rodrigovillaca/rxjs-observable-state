@@ -10,11 +10,11 @@ import {
     throwError
 } from 'rxjs';
 
-import { ObservablePersistencyCallbacks } from './persistency-callbacks';
+import { ObservableStatePersistencyCallbacks } from './persistency-callbacks';
 
 import { ObservableStateEncoding } from './encoding';
 
-import { ObservableDataSource } from './data-source';
+import { ObservableStateDataSource } from './data-source';
 
 import { tap, map } from 'rxjs/operators';
 import { types } from 'util';
@@ -23,7 +23,7 @@ import * as hash from 'object-hash';
 export interface ObservableStateOptions<T, IdType> {
     idProperty: string;
     singleEntityMode?: boolean;
-    persistencyCallbacks?: ObservablePersistencyCallbacks<T, IdType>;
+    persistencyCallbacks?: ObservableStatePersistencyCallbacks<T, IdType>;
     encoding?: ObservableStateEncoding;
 }
 export class ObservableState<T, IdType> {
@@ -31,7 +31,7 @@ export class ObservableState<T, IdType> {
     private readonly observables: { [id: string]: Observable<T> } = {};
 
     readonly encoding: ObservableStateEncoding;
-    readonly persistencyCallbacks?: ObservablePersistencyCallbacks<T, IdType>;
+    readonly persistencyCallbacks?: ObservableStatePersistencyCallbacks<T, IdType>;
     readonly idProperty: string;
     readonly singleEntityMode: boolean;
 
@@ -154,7 +154,7 @@ export class ObservableState<T, IdType> {
         return of(this.countStateItems());
     }
 
-    create(object: T, source: ObservableDataSource<IdType>) {
+    create(object: T, source: ObservableStateDataSource<IdType>) {
         const observable = this.getObservableFrom(source);
         return observable.pipe(
             tap(id => {
@@ -200,7 +200,7 @@ export class ObservableState<T, IdType> {
             return throwError('item_not_found');
         }
     }
-    get(id?: IdType, source?: ObservableDataSource<T>) {
+    get(id?: IdType, source?: ObservableStateDataSource<T>) {
         const observable = this.getObservableFrom(source);
         const stateId = this.generateStateId(id);
 
@@ -241,7 +241,7 @@ export class ObservableState<T, IdType> {
             .filter(object => !!object);
     }
 
-    load(source: ObservableDataSource<T>, id?: IdType) {
+    load(source: ObservableStateDataSource<T>, id?: IdType) {
         const observable = this.getObservableFrom(source);
         if (!isObservable(observable)) {
             return throwError('invalid_observable');
@@ -258,7 +258,7 @@ export class ObservableState<T, IdType> {
     }
 
     loadMultiple(
-        sources: { id?: IdType; data: ObservableDataSource<T> }[],
+        sources: { id?: IdType; data: ObservableStateDataSource<T> }[],
         options: { clearAll?: boolean; replaceExisting?: boolean } = {}
     ) {
         const observables: Observable<T>[] = [];
@@ -334,7 +334,7 @@ export class ObservableState<T, IdType> {
         }
     }
 
-    private getObservableFrom<SourceType>(source: ObservableDataSource<SourceType>) {
+    private getObservableFrom<SourceType>(source: ObservableStateDataSource<SourceType>) {
         if (isObservable(source)) {
             return source as Observable<SourceType>;
         } else if (types.isPromise(source)) {
@@ -344,7 +344,7 @@ export class ObservableState<T, IdType> {
         }
     }
 
-    set(source: ObservableDataSource<T>) {
+    set(source: ObservableStateDataSource<T>) {
         const observable = this.getObservableFrom(source);
         if (!isObservable(observable)) {
             return throwError('invalid_observable');
@@ -359,7 +359,7 @@ export class ObservableState<T, IdType> {
         );
     }
 
-    setMultiple(source: ObservableDataSource<T[]>, replaceExisting: boolean = true) {
+    setMultiple(source: ObservableStateDataSource<T[]>, replaceExisting: boolean = true) {
         const observable = this.getObservableFrom(source);
 
         return observable.pipe(

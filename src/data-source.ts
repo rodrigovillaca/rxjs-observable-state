@@ -1,3 +1,3 @@
 import { SubscribableOrPromise } from 'rxjs';
 
-export type ObservableDataSource<SourceType> = SubscribableOrPromise<SourceType> | SourceType;
+export type ObservableStateDataSource<SourceType> = SubscribableOrPromise<SourceType> | SourceType;

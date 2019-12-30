@@ -12,7 +12,7 @@ export default {
             format: 'es',
         },
     ],
-    external: ['rxjs', 'rxjs/operators', 'util', 'object-hash'], plugins: [
+    external: ['rxjs', 'rxjs/operators', 'object-hash'], plugins: [
         typescript({
             typescript: require('typescript'),
         }),

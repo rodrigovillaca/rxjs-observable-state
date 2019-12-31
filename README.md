@@ -172,9 +172,7 @@ Both parameters are optional but at least one is required.
 - If id is speficified:
   - if item exits on the state, this item is returned
   - if item not exists:
-    - run observable if provided:
-      - if item from observable exits on the state, this item is returned
-      - if not update the state with the item from the observable
+    - updates the state from observable if provided
     - if observable not exists:
       - throw exception
   

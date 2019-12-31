@@ -1,31 +1,15 @@
-import {
-    Subject,
-    Observable,
-    SubscribableOrPromise,
-    isObservable,
-    from,
-    of,
-    ReplaySubject,
-    forkJoin,
-    throwError
-} from 'rxjs';
-
-// import { ObservableStatePersistencyCallbacks } from './persistency-callbacks';
-
-import { ObservableStateEncoding } from './encoding';
-
-import { ObservableStateDataSource } from './data-source';
-
-import { tap, map, filter, flatMap } from 'rxjs/operators';
 import * as hash from 'object-hash';
+import { forkJoin, from, isObservable, Observable, of, ReplaySubject, Subject, throwError } from 'rxjs';
+import { filter, map, tap, flatMap } from 'rxjs/operators';
+import { ObservableStateDataSource } from './data-source';
+import { ObservableStateEncoding } from './encoding';
 
 const isPromise = (value: any): value is PromiseLike<any> => {
     return !!value && typeof value.subscribe !== 'function' && typeof value.then === 'function';
 };
-export interface ObservableStateOptions<T, IdType> {
+export interface ObservableStateOptions<T, TId> {
     idProperty: string;
     singleEntityMode?: boolean;
-    // persistencyCallbacks?: ObservableStatePersistencyCallbacks<T, IdType>;
     encoding?: ObservableStateEncoding;
     ttl?: number;
 }
@@ -44,7 +28,7 @@ interface ObservableOptions<T> {
 }
 type SubjectOptions<T> = Subject<ObservableStateObjectTtlNotRequired<T>>;
 
-export class ObservableState<T, IdType> {
+export class ObservableState<T, TId> {
     private readonly subjects: { [id: string]: SubjectOptions<T> } = {};
     private readonly observables: { [id: string]: ObservableOptions<T> } = {};
 
@@ -53,33 +37,11 @@ export class ObservableState<T, IdType> {
     readonly singleEntityMode: boolean;
     readonly ttl: number;
 
-    // private _persistencyCallbacks?: ObservableStatePersistencyCallbacks<T, IdType>;
-    // get persistencyCallbacks(): ObservableStatePersistencyCallbacks<T, IdType> {
-    //     return this._persistencyCallbacks;
-    // }
-    // set persistencyCallbacks(value: ObservableStatePersistencyCallbacks<T, IdType>) {
-    //     this._persistencyCallbacks = value;
-    //     if (this._persistencyCallbacks && this._persistencyCallbacks.all instanceof Function) {
-    //         const all = this.persistencyCallbackToPromise(this._persistencyCallbacks.all());
-
-    //         all.then(existing =>
-    //             existing.forEach(item => {
-    //                 if (this.isExpired(undefined, item?.lastUpdated)) {
-    //                     this.remove((item?.data as any)[this.idProperty]);
-    //                 } else {
-    //                     this.addToState(item);
-    //                 }
-    //             })
-    //         );
-    //     }
-    // }
-
-    constructor(options: ObservableStateOptions<T, IdType>) {
+    constructor(options: ObservableStateOptions<T, TId>) {
         this.idProperty = options.idProperty;
         this.encoding = options.encoding ? options.encoding : 'plain';
         this.singleEntityMode = options.singleEntityMode;
         this.ttl = options.ttl ? options.ttl : 60 * 60 * 1000;
-        // this.persistencyCallbacks = options.persistencyCallbacks;
     }
 
     private addToState(object: ObservableStateObjectTtlNotRequired<T>): ObservableStateObject<T> {
@@ -103,14 +65,14 @@ export class ObservableState<T, IdType> {
         const stateId = this.generateStateId(id);
         return !!this.observables[stateId] && !!this.subjects[stateId];
     }
-    private generateStateId(id?: IdType): string {
+    private generateStateId(id?: TId): string {
         const stateId = this.generateStateIdInternal(id);
         if (this.observables[stateId] && this.isExpired(undefined, this.observables[stateId].lastUpdated)) {
             this.remove(id);
         }
         return stateId;
     }
-    private generateStateIdInternal(id?: IdType): string {
+    private generateStateIdInternal(id?: TId): string {
         if (!id && !this.singleEntityMode) {
             throw new Error('undefined_id');
         }
@@ -133,8 +95,8 @@ export class ObservableState<T, IdType> {
         }
     }
 
-    private getObjectId(object: T): IdType {
-        return (object as any)[this.idProperty] as IdType;
+    private getObjectId(object: T): TId {
+        return (object as any)[this.idProperty] as TId;
     }
 
     private getObservableFrom<SourceType>(source: ObservableStateDataSource<SourceType>): Observable<SourceType> {
@@ -154,40 +116,6 @@ export class ObservableState<T, IdType> {
         return stateId;
     }
 
-    private persistencyCallbackToObserbable<PersistencyType>(
-        source: SubscribableOrPromise<PersistencyType> | PersistencyType
-    ): Observable<PersistencyType> {
-        if (source) {
-            let destination: Observable<PersistencyType>;
-            if (isObservable(source)) {
-                destination = source as Observable<PersistencyType>;
-            } else if (isPromise(source)) {
-                destination = from(source as Promise<PersistencyType>);
-            } else {
-                destination = of(source as PersistencyType);
-            }
-            return destination;
-        } else {
-            return of(null as PersistencyType);
-        }
-    }
-
-    private persistencyCallbackToPromise<PersistencyType>(
-        source: SubscribableOrPromise<PersistencyType> | PersistencyType
-    ): Promise<PersistencyType> {
-        if (source) {
-            let destination: Promise<PersistencyType>;
-            if (isObservable(source)) {
-                destination = (source as Observable<PersistencyType>).toPromise();
-            } else if (isPromise(source)) {
-                destination = source as Promise<PersistencyType>;
-            } else {
-                destination = Promise.resolve(source as PersistencyType);
-            }
-            return destination;
-        }
-    }
-
     clear(): void {
         Object.keys(this.subjects).forEach(key => {
             delete this.subjects[key];
@@ -195,31 +123,23 @@ export class ObservableState<T, IdType> {
         Object.keys(this.observables).forEach(key => {
             delete this.observables[key];
         });
-
-        // if (this.persistencyCallbacks && this.persistencyCallbacks.clear instanceof Function) {
-        //     this.persistencyCallbacks.clear();
-        // }
     }
 
     count(): Observable<number> {
         return of(this.countStateItems());
     }
 
-    create(object: T, source: ObservableStateDataSource<IdType>): Observable<IdType> {
+    create(object: T, source: ObservableStateDataSource<TId>): Observable<TId> {
         const observable = this.getObservableFrom(source);
         return observable.pipe(
             tap(id => {
                 (object as any)[this.idProperty] = id;
-                const objectToStore = this.addToState({ data: object });
-
-                // if (this.persistencyCallbacks && this.persistencyCallbacks.set instanceof Function) {
-                //     this.persistencyCallbacks.set([objectToStore]);
-                // }
+                this.addToState({ data: object });
             })
         );
     }
 
-    exists(id?: IdType): Observable<boolean> {
+    exists(id?: TId): Observable<boolean> {
         return of(this.exisitsInState(id));
     }
 
@@ -237,39 +157,18 @@ export class ObservableState<T, IdType> {
         );
     }
 
-    // tryGetFromPersistency(id: IdType): Observable<T> {
-    //     if (this.persistencyCallbacks && this.persistencyCallbacks.get instanceof Function) {
-    //         return this.persistencyCallbackToObserbable(this.persistencyCallbacks.get([id])).pipe(
-    //             map(objects => {
-    //                 if (objects?.length) {
-    //                     return objects[0].data;
-    //                 } else {
-    //                     throw new Error('item_not_found');
-    //                 }
-    //             })
-    //         );
-    //     } else {
-    //         return throwError('item_not_found');
-    //     }
-    // }
-
-    // tryGetAllFromPersistency(ids: IdType[]): Observable<T[]> {
-    //     if (this.persistencyCallbacks && this.persistencyCallbacks.get instanceof Function) {
-    //         return this.persistencyCallbackToObserbable(this.persistencyCallbacks.get(ids)).pipe(
-    //             map(objects => {
-    //                 if (objects?.length) {
-    //                     return objects.map(object => object.data);
-    //                 } else {
-    //                     throw new Error('item_not_found');
-    //                 }
-    //             })
-    //         );
-    //     } else {
-    //         return throwError('item_not_found');
-    //     }
-    // }
-
-    get(id?: IdType, source?: ObservableStateDataSource<T>): Observable<T> {
+    /**
+     *
+     * Gets an object from the state.
+     * Both parameters are optional but at least one must be specified.
+     *
+     * @param [id] - the unique identifier for the object being retrieved - The type is TId - TId is defined when creating the state object
+     * @param  [source] - item to be retrieved, it can be: T, Observervable<T>, Promise<T> - T is defined when creating the state object
+     *
+     *
+     * @returns the state item wrapped in an observable
+     */
+    get(id?: TId, source?: ObservableStateDataSource<T>): Observable<T> {
         const observable = this.getObservableFrom(source);
         const stateId = this.generateStateId(id);
 
@@ -284,10 +183,10 @@ export class ObservableState<T, IdType> {
         }
     }
 
-    getAllIds(): Observable<IdType[]> {
+    getAllIds(): Observable<TId[]> {
         return forkJoin(
             Object.values(this.observables).map(observable =>
-                observable?.observable?.pipe(map(object => this.getObjectId(object.data) as IdType))
+                observable?.observable?.pipe(map(object => this.getObjectId(object.data) as TId))
             )
         );
     }
@@ -296,7 +195,7 @@ export class ObservableState<T, IdType> {
         return forkJoin(Object.values(this.observables).map(item => item.observable.pipe(map(object => object.data))));
     }
 
-    getMultiple(ids: IdType[], breakOnNotFound?: boolean): Observable<T[]> {
+    getMultiple(ids: TId[], breakOnNotFound?: boolean): Observable<T[]> {
         if (!Array.isArray(ids)) {
             return throwError('invalid_array');
         }
@@ -324,106 +223,10 @@ export class ObservableState<T, IdType> {
         return diff >= this.ttl;
     }
 
-    load(source: ObservableStateDataSource<T>, id?: IdType): Observable<T> {
-        const observable = this.getObservableFrom(source);
-        if (!isObservable(observable)) {
-            return throwError('invalid_observable');
-        }
-        const stateId = this.generateStateId(id);
-
-        if (isObservable(this.observables[stateId]?.observable)) {
-            return this.observables[stateId].observable.pipe(map(object => object.data));
-        } else if (isObservable(observable)) {
-            return this.set(observable);
-        } else {
-            return throwError('item_not_found');
-        }
-    }
-
-    loadMultiple(
-        sources: { id?: IdType; data: ObservableStateDataSource<T> }[],
-        options: { clearAll?: boolean; replaceExisting?: boolean } = {}
-    ): Observable<T[]> {
-        const observables: Observable<T>[] = [];
-        sources.forEach(source => {
-            let stateId: string;
-            const observable = this.getObservableFrom(source.data);
-            try {
-                stateId = this.generateStateId(source.id);
-                if (stateId && isObservable(this.observables[stateId]?.observable)) {
-                    observables.push(this.observables[stateId].observable.pipe(map(object => object.data)));
-                } else if (isObservable(observable)) {
-                    observables.push(this.set(observable));
-                }
-            } catch {
-                observables.push(this.set(observable));
-            }
-        });
-        return forkJoin(observables);
-    }
-
-    // persistGet(itemId: IdType): Observable<T> {
-    //     if (this.persistencyCallbacks && this.persistencyCallbacks.all instanceof Function) {
-    //         const observable = this.persistencyCallbackToObserbable(this.persistencyCallbacks.get([itemId]));
-    //         if (!observable) {
-    //             return of<T>(null);
-    //         } else {
-    //             return observable.pipe(
-    //                 map(objects => {
-    //                     if (Array.isArray(objects)) {
-    //                         return objects[0]?.data;
-    //                     } else {
-    //                         return null;
-    //                     }
-    //                 })
-    //             );
-    //         }
-    //     } else {
-    //         throwError('invalid_persistency_function');
-    //     }
-    // }
-
-    // persistGetAll(): Observable<T[]> {
-    //     if (this.persistencyCallbacks && this.persistencyCallbacks.all instanceof Function) {
-    //         return this.persistencyCallbackToObserbable(this.persistencyCallbacks.all()).pipe(
-    //             map(objects => objects?.map(object => object.data))
-    //         );
-    //     } else {
-    //         throwError('invalid_persistency_function');
-    //     }
-    // }
-
-    // persistRemove(itemIds: IdType[]): Observable<boolean | void> {
-    //     if (this.persistencyCallbacks && this.persistencyCallbacks.remove instanceof Function) {
-    //         return this.persistencyCallbackToObserbable(this.persistencyCallbacks.remove(itemIds));
-    //     } else {
-    //         throwError('invalid_persistency_function');
-    //     }
-    // }
-
-    // persistSet(items: T[]): Observable<boolean | void> {
-    //     if (Array.isArray(items) && this.persistencyCallbacks && this.persistencyCallbacks.set instanceof Function) {
-    //         return this.persistencyCallbackToObserbable(
-    //             this.persistencyCallbacks.set(
-    //                 items.map(item => {
-    //                     return { data: item, lastUpdated: new Date() };
-    //                 })
-    //             )
-    //         );
-    //     } else {
-    //         throwError('invalid_persistency_function');
-    //     }
-    // }
-
-    remove(id: IdType): void {
+    remove(id: TId): void {
         const stateId = this.generateStateId(id);
         delete this.subjects[stateId];
         delete this.observables[stateId];
-        // delete this.lastUpdated[stateId];
-
-        // if (this.persistencyCallbacks && this.persistencyCallbacks.set instanceof Function) {
-        //     this.persistencyCallbacks.remove([id]);
-        // }
     }
 
     set(source: ObservableStateDataSource<T>): Observable<T> {
@@ -433,29 +236,30 @@ export class ObservableState<T, IdType> {
         }
         return observable.pipe(
             tap(object => {
-                const objectToPersist = this.addToState({ data: object });
-                // if (this.persistencyCallbacks && this.persistencyCallbacks.set instanceof Function) {
-                //     this.persistencyCallbacks.set([objectToPersist]);
-                // }
+                this.addToState({ data: object });
             })
         );
     }
 
-    setMultiple(source: ObservableStateDataSource<T[]>, replaceExisting: boolean = true): Observable<T[]> {
+    setMultiple(
+        source: ObservableStateDataSource<T[]>,
+        replaceExisting: boolean = true,
+        clearAll?: boolean
+    ): Observable<T[]> {
+        if (clearAll) {
+            this.clear();
+        }
+
         const observable = this.getObservableFrom(source);
-        const objectToPersist: ObservableStateObject<T>[] = [];
 
         return observable.pipe(
             tap(objects => {
                 objects?.forEach(object => {
                     const stateId = this.generateStateId(this.getObjectId(object));
                     if (replaceExisting || !this.exisitsInState(stateId)) {
-                        objectToPersist.push(this.addToState({ data: object }));
+                        this.addToState({ data: object });
                     }
                 });
-                // if (this.persistencyCallbacks && this.persistencyCallbacks.set instanceof Function) {
-                //     this.persistencyCallbacks.set(objectToPersist);
-                // }
             })
         );
     }

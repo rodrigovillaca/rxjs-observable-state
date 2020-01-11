@@ -1,6 +1,6 @@
 {
     "name": "rxjs-observable-state",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "Simple and effective state management for rxjs/angular/ionic applications.",
     "repository": "https://rodrigovillaca@github.com/rodrigovillaca/rxjs-observable-state.git",
     "homepage": "https://github.com/rodrigovillaca/rxjs-observable-state",

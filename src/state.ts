@@ -1,6 +1,6 @@
 import * as hash from 'object-hash';
-import { forkJoin, from, isObservable, Observable, of, ReplaySubject, Subject, throwError } from 'rxjs';
-import { filter, map, tap, flatMap } from 'rxjs/operators';
+import { from, isObservable, Observable, of, ReplaySubject, Subject, throwError, BehaviorSubject } from 'rxjs';
+import { map, tap, flatMap } from 'rxjs/operators';
 import { ObservableStateDataSource } from './data-source';
 import { ObservableStateEncoding } from './encoding';
 
@@ -14,64 +14,83 @@ export interface ObservableStateOptions<T, TId> {
     ttl?: number;
 }
 
-interface ObservableStateObjectTtlNotRequired<T> {
-    data: T;
+class ItemState<T> {
+    data?: T;
+    readonly subject: Subject<T>;
+    readonly observable: Observable<T>;
     lastUpdated?: Date;
+    constructor() {
+        this.subject = new ReplaySubject(1);
+        this.observable = this.subject.asObservable();
+    }
 }
-export interface ObservableStateObject<T> {
-    data: T;
-    lastUpdated: Date;
-}
-interface ObservableOptions<T> {
-    observable: Observable<ObservableStateObjectTtlNotRequired<T>>;
-    lastUpdated?: Date;
-}
-type SubjectOptions<T> = Subject<ObservableStateObjectTtlNotRequired<T>>;
 
 export class ObservableState<T, TId> {
-    private readonly subjects: { [id: string]: SubjectOptions<T> } = {};
-    private readonly observables: { [id: string]: ObservableOptions<T> } = {};
+    private readonly state: { [id: string]: ItemState<T> } = {};
+
+    private readonly stateUpdatedSubject = new BehaviorSubject<void>(null);
+    private readonly stateUpdated = this.stateUpdatedSubject.asObservable();
 
     readonly encoding: ObservableStateEncoding;
     readonly idProperty: string;
     readonly singleEntityMode: boolean;
     readonly ttl: number;
+    loadingObservable: Observable<any> = of(null);
 
     constructor(options: ObservableStateOptions<T, TId>) {
         this.idProperty = options.idProperty;
         this.encoding = options.encoding ? options.encoding : 'plain';
         this.singleEntityMode = options.singleEntityMode;
-        this.ttl = options.ttl ? options.ttl : 60 * 60 * 1000;
+        this.ttl = options.ttl ? options.ttl : undefined;
     }
 
-    private addToState(object: ObservableStateObjectTtlNotRequired<T>): ObservableStateObject<T> {
-        if (!object || !object.data) {
+    private addToState(object: T): T {
+        if (!object) {
             throw new Error('undefined_object');
         }
 
-        const stateId = this.generateStateId(this.getObjectId(object.data));
+        const stateId = this.generateStateId(this.getObjectId(object));
         this.initializeState(stateId);
-        object.lastUpdated = new Date();
+        this.state[stateId].lastUpdated = new Date();
+        this.state[stateId].data = object;
+        this.state[stateId]?.subject?.next(Object.assign({}, object));
+        this.stateUpdatedSubject.next();
+        return object;
+    }
 
-        this.subjects[stateId].next(Object.assign({}, object));
-        return object as ObservableStateObject<T>;
+    private mergeToState(object: T): T {
+        if (!object) {
+            throw new Error('undefined_object');
+        }
+
+        const stateId = this.generateStateId(this.getObjectId(object));
+        this.initializeState(stateId);
+        this.state[stateId].lastUpdated = new Date();
+        object = this.state[stateId].data ? Object.assign(this.state[stateId].data, object) : object;
+
+        this.state[stateId].data = object;
+        this.state[stateId]?.subject?.next(Object.assign({}, object));
+        this.stateUpdatedSubject.next();
+        return object;
     }
 
     private countStateItems(): number {
-        return Object.keys(this.observables).length;
+        return Object.keys(this.state).length;
     }
 
     private exisitsInState(id?: any): boolean {
         const stateId = this.generateStateId(id);
-        return !!this.observables[stateId] && !!this.subjects[stateId];
+        return !!this.state[stateId];
     }
+
     private generateStateId(id?: TId): string {
         const stateId = this.generateStateIdInternal(id);
-        if (this.observables[stateId] && this.isExpired(undefined, this.observables[stateId].lastUpdated)) {
+        if (this.state[stateId] && this.isExpired(id, this.state[stateId].lastUpdated)) {
             this.remove(id);
         }
         return stateId;
     }
+
     private generateStateIdInternal(id?: TId): string {
         if (!id && !this.singleEntityMode) {
             throw new Error('undefined_id');
@@ -109,51 +128,55 @@ export class ObservableState<T, TId> {
         }
     }
     private initializeState(stateId: string): string {
-        if (!isObservable(this.observables[stateId]?.observable) || !isObservable(this.subjects[stateId])) {
-            this.subjects[stateId] = new ReplaySubject(1);
-            this.observables[stateId] = { observable: this.subjects[stateId].asObservable() };
+        if (!this.state[stateId]) {
+            this.state[stateId] = new ItemState<T>();
         }
         return stateId;
     }
 
     clear(): void {
-        Object.keys(this.subjects).forEach(key => {
-            delete this.subjects[key];
-        });
-        Object.keys(this.observables).forEach(key => {
-            delete this.observables[key];
+        Object.keys(this.state).forEach(key => {
+            delete this.state[key];
         });
     }
 
     count(): Observable<number> {
-        return of(this.countStateItems());
+        return this.stateUpdated.pipe(map(() => this.countStateItems()));
     }
 
     create(object: T, source: ObservableStateDataSource<TId>): Observable<TId> {
         const observable = this.getObservableFrom(source);
-        return observable.pipe(
-            tap(id => {
-                (object as any)[this.idProperty] = id;
-                this.addToState({ data: object });
-            })
-        );
+        return observable
+            .pipe(
+                map(id => {
+                    (object as any)[this.idProperty] = id;
+                    this.addToState(object);
+                    return id;
+                })
+            )
+            .pipe(
+                flatMap(id => {
+                    return this.stateUpdated.pipe(map(() => this.exisitsInState(id) ? id : null));
+                })
+            );
     }
 
     exists(id?: TId): Observable<boolean> {
-        return of(this.exisitsInState(id));
+        return this.stateUpdated.pipe(map(() => this.exisitsInState(id)));
     }
 
     filter(filterFn: (object: T) => boolean): Observable<T[]> {
-        return forkJoin(
-            Object.values(this.observables).map((observable: ObservableOptions<T>) => {
-                return observable.observable
-                    .pipe(
-                        filter(
-                            object => !!object && this.isExpired(undefined, object.lastUpdated) && filterFn(object.data)
-                        )
+        return this.stateUpdated.pipe(
+            map(() =>
+                Object.values(this.state)
+                    .filter(
+                        stateItem =>
+                            !!stateItem?.data &&
+                            this.isExpired(undefined, stateItem.lastUpdated) &&
+                            filterFn(stateItem.data)
                     )
-                    .pipe(map(object => object.data));
-            })
+                    .map(stateItem => stateItem.data)
+            )
         );
     }
 
@@ -172,8 +195,8 @@ export class ObservableState<T, TId> {
         const observable = this.getObservableFrom(source);
         const stateId = this.generateStateId(id);
 
-        if (isObservable(this.observables[stateId]?.observable)) {
-            return this.observables[stateId].observable.pipe(map(object => object.data));
+        if (isObservable(this.state[stateId]?.observable)) {
+            return this.stateUpdated.pipe(flatMap(() => this.exisitsInState(id) ? this.state[stateId].observable : of(null)));
         } else if (isObservable(observable)) {
             return this.set(observable);
         } else if (id) {
@@ -184,37 +207,53 @@ export class ObservableState<T, TId> {
     }
 
     getAllIds(): Observable<TId[]> {
-        return forkJoin(
-            Object.values(this.observables).map(observable =>
-                observable?.observable?.pipe(map(object => this.getObjectId(object.data) as TId))
-            )
-        );
+        return this.getAll().pipe(map(objects => objects.map(object => this.getObjectId(object))));
     }
 
     getAll(): Observable<T[]> {
-        return forkJoin(Object.values(this.observables).map(item => item.observable.pipe(map(object => object.data))));
+        return this.stateUpdated.pipe(
+            map(() =>
+                Object.values(this.state)
+                    .filter(stateItem => stateItem.data && !this.isExpired(undefined, stateItem.lastUpdated))
+                    .map(stateItem => stateItem.data)
+            )
+        );
     }
 
     getMultiple(ids: TId[], breakOnNotFound?: boolean): Observable<T[]> {
         if (!Array.isArray(ids)) {
             return throwError('invalid_array');
         }
-        return forkJoin(
-            ids
-                .map(id => {
-                    const stateId = this.generateStateId(id);
-                    if (isObservable(this.observables[stateId]?.observable)) {
-                        return this.observables[stateId].observable.pipe(map(object => object.data));
-                    } else if (breakOnNotFound) {
-                        return throwError(`item_not_found: ${JSON.stringify(id)}`);
-                    }
-                })
-                .filter(object => !!object)
+
+        return this.stateUpdated.pipe(
+            map(() =>
+                ids
+                    .map(id => {
+                        const stateId = this.generateStateId(id);
+                        if (this.state[stateId]?.data) {
+                            return this.state[stateId]?.data;
+                        } else if (breakOnNotFound) {
+                            throw new Error(`item_not_found: ${JSON.stringify(id)}`);
+                        } else {
+                            return null as T;
+                        }
+                    })
+                    .filter(object => !!object)
+            )
         );
     }
 
     isExpired(id?: any, lastUpdated?: Date): boolean {
-        const prevTime = lastUpdated ? lastUpdated : this.observables[this.generateStateIdInternal(id)]?.lastUpdated;
+        if (!this.ttl) {
+            return false;
+        }
+        let prevTime: Date;
+        if (lastUpdated) {
+            prevTime = lastUpdated;
+        } else if (id) {
+            prevTime = this.state[this.generateStateIdInternal(id)]?.lastUpdated;
+        }
+
         if (!prevTime) {
             return false;
         }
@@ -225,42 +264,90 @@ export class ObservableState<T, TId> {
 
     remove(id: TId): void {
         const stateId = this.generateStateId(id);
-        delete this.subjects[stateId];
-        delete this.observables[stateId];
+        delete this.state[stateId];
+        this.stateUpdatedSubject.next();
     }
 
-    set(source: ObservableStateDataSource<T>): Observable<T> {
-        const observable = this.getObservableFrom(source);
-        if (!isObservable(observable)) {
+    set(source: ObservableStateDataSource<T>, merge?: boolean, isDataLoad?: boolean): Observable<T> {
+        const sourceObservable = this.getObservableFrom(source);
+        if (!isObservable(sourceObservable)) {
             return throwError('invalid_observable');
         }
-        return observable.pipe(
-            tap(object => {
-                this.addToState({ data: object });
-            })
-        );
+
+        const observable = this.loadingObservable.pipe(flatMap(() => sourceObservable));
+        if (isDataLoad) {
+            this.loadingObservable = observable;
+        }
+
+        return observable
+            .pipe(
+                map(object => {
+                    if (merge) {
+                        this.mergeToState(object);
+                    } else {
+                        this.addToState(object);
+                    }
+                    return object;
+                })
+            )
+            .pipe(
+                flatMap(object => {
+                    const stateId = this.generateStateId(this.getObjectId(object));
+                    return this.stateUpdated.pipe(map(() => this.state[stateId]?.data));
+                })
+            );
     }
 
     setMultiple(
         source: ObservableStateDataSource<T[]>,
-        replaceExisting: boolean = true,
-        clearAll?: boolean
+        options: {
+            replaceExisting?: boolean;
+            merge?: boolean;
+            clearAll?: boolean;
+            isDataLoad?: boolean;
+        } = { replaceExisting: true }
     ): Observable<T[]> {
-        if (clearAll) {
+        if (options.clearAll) {
             this.clear();
         }
+        const sourceObservable = this.getObservableFrom(source);
+        if (!isObservable(sourceObservable)) {
+            return throwError('invalid_observable');
+        }
 
-        const observable = this.getObservableFrom(source);
+        const observable = this.loadingObservable.pipe(flatMap(() => sourceObservable));
+        if (options.isDataLoad) {
+            this.loadingObservable = observable;
+        }
 
-        return observable.pipe(
-            tap(objects => {
-                objects?.forEach(object => {
-                    const stateId = this.generateStateId(this.getObjectId(object));
-                    if (replaceExisting || !this.exisitsInState(stateId)) {
-                        this.addToState({ data: object });
-                    }
-                });
-            })
-        );
+        return observable
+            .pipe(
+                map(objects => {
+                    objects?.forEach(object => {
+                        const stateId = this.generateStateId(this.getObjectId(object));
+                        if (options.merge) {
+                            this.mergeToState(object);
+                        } else if (options.replaceExisting || !this.exisitsInState(stateId)) {
+                            this.addToState(object);
+                        }
+                        if (options.isDataLoad) {
+                            this.loadingObservable = of(null);
+                        }
+                    });
+                    return objects;
+                })
+            )
+            .pipe(
+                flatMap(objects => {
+                    return this.stateUpdated.pipe(
+                        map(() =>
+                            objects.map(object => {
+                                const stateId = this.generateStateId(this.getObjectId(object));
+                                return this.state[stateId].data;
+                            })
+                        )
+                    );
+                })
+            );
     }
 }

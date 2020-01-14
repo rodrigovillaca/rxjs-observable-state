@@ -28,20 +28,22 @@ class ItemState<T> {
 export class ObservableState<T, TId> {
     private readonly state: { [id: string]: ItemState<T> } = {};
 
-    private readonly stateUpdatedSubject = new BehaviorSubject<void>(null);
+    private readonly stateUpdatedSubject = new ReplaySubject<void>(1);
     private readonly stateUpdated = this.stateUpdatedSubject.asObservable();
 
     readonly encoding: ObservableStateEncoding;
     readonly idProperty: string;
     readonly singleEntityMode: boolean;
     readonly ttl: number;
-    loading: BehaviorSubject<boolean> = new BehaviorSubject(false);
+    loading: Subject<boolean> = new ReplaySubject<boolean>(1);
 
     constructor(options: ObservableStateOptions<T, TId>) {
         this.idProperty = options.idProperty;
         this.encoding = options.encoding ? options.encoding : 'plain';
         this.singleEntityMode = options.singleEntityMode;
         this.ttl = options.ttl ? options.ttl : undefined;
+        this.stateUpdatedSubject.next(null);
+        this.loading.next(false);
     }
 
     private addToState(object: T): T {
@@ -153,9 +155,15 @@ export class ObservableState<T, TId> {
                     return id;
                 })
             )
+            .pipe(first())
             .pipe(
                 flatMap(id => {
-                    return this.stateUpdated.pipe(map(() => (this.exisitsInState(id) ? id : null)));
+                    const stateId = this.generateStateId(id);
+                    if (stateId && this.state[stateId]) {
+                        return this.state[stateId].observable.pipe(map(item => (item as any)[this.idProperty] as TId));
+                    } else {
+                        return of(null);
+                    }
                 })
             );
     }
@@ -200,9 +208,7 @@ export class ObservableState<T, TId> {
             .pipe(
                 flatMap(() => {
                     if (isObservable(this.state[stateId]?.observable)) {
-                        return this.stateUpdated.pipe(
-                            flatMap(() => (this.exisitsInState(id) ? this.state[stateId].observable : of(null)))
-                        );
+                        return this.state[stateId].observable;
                     } else if (isObservable(observable)) {
                         return this.set(observable);
                     } else if (id) {
@@ -309,10 +315,16 @@ export class ObservableState<T, TId> {
                     return object;
                 })
             )
+            .pipe(first())
             .pipe(
                 flatMap(object => {
                     const stateId = this.generateStateId(this.getObjectId(object));
-                    return this.stateUpdated.pipe(map(() => this.state[stateId]?.data));
+
+                    if (stateId && this.state[stateId]) {
+                        return this.state[stateId].observable;
+                    } else {
+                        return of(null);
+                    }
                 })
             )
             .pipe(
@@ -373,6 +385,7 @@ export class ObservableState<T, TId> {
                     return objects;
                 })
             )
+            .pipe(first())
             .pipe(
                 flatMap(objects => {
                     return this.stateUpdated.pipe(

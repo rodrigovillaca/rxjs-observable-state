@@ -1,6 +1,6 @@
 import * as hash from 'object-hash';
 import { from, isObservable, Observable, of, ReplaySubject, Subject, throwError, BehaviorSubject } from 'rxjs';
-import { map, tap, flatMap } from 'rxjs/operators';
+import { map, tap, flatMap, first, skipWhile, catchError } from 'rxjs/operators';
 import { ObservableStateDataSource } from './data-source';
 import { ObservableStateEncoding } from './encoding';
 
@@ -35,7 +35,7 @@ export class ObservableState<T, TId> {
     readonly idProperty: string;
     readonly singleEntityMode: boolean;
     readonly ttl: number;
-    loadingObservable: Observable<any> = of(null);
+    loading: BehaviorSubject<boolean> = new BehaviorSubject(false);
 
     constructor(options: ObservableStateOptions<T, TId>) {
         this.idProperty = options.idProperty;
@@ -54,7 +54,6 @@ export class ObservableState<T, TId> {
         this.state[stateId].lastUpdated = new Date();
         this.state[stateId].data = object;
         this.state[stateId]?.subject?.next(Object.assign({}, object));
-        this.stateUpdatedSubject.next();
         return object;
     }
 
@@ -70,7 +69,6 @@ export class ObservableState<T, TId> {
 
         this.state[stateId].data = object;
         this.state[stateId]?.subject?.next(Object.assign({}, object));
-        this.stateUpdatedSubject.next();
         return object;
     }
 
@@ -151,12 +149,13 @@ export class ObservableState<T, TId> {
                 map(id => {
                     (object as any)[this.idProperty] = id;
                     this.addToState(object);
+                    this.stateUpdatedSubject.next();
                     return id;
                 })
             )
             .pipe(
                 flatMap(id => {
-                    return this.stateUpdated.pipe(map(() => this.exisitsInState(id) ? id : null));
+                    return this.stateUpdated.pipe(map(() => (this.exisitsInState(id) ? id : null)));
                 })
             );
     }
@@ -195,15 +194,24 @@ export class ObservableState<T, TId> {
         const observable = this.getObservableFrom(source);
         const stateId = this.generateStateId(id);
 
-        if (isObservable(this.state[stateId]?.observable)) {
-            return this.stateUpdated.pipe(flatMap(() => this.exisitsInState(id) ? this.state[stateId].observable : of(null)));
-        } else if (isObservable(observable)) {
-            return this.set(observable);
-        } else if (id) {
-            return throwError('item_not_found');
-        } else {
-            return throwError('invalid_id_and_observable');
-        }
+        return this.loading
+            .pipe(skipWhile(loading => loading))
+            .pipe(first())
+            .pipe(
+                flatMap(() => {
+                    if (isObservable(this.state[stateId]?.observable)) {
+                        return this.stateUpdated.pipe(
+                            flatMap(() => (this.exisitsInState(id) ? this.state[stateId].observable : of(null)))
+                        );
+                    } else if (isObservable(observable)) {
+                        return this.set(observable);
+                    } else if (id) {
+                        return throwError('item_not_found');
+                    } else {
+                        return throwError('invalid_id_and_observable');
+                    }
+                })
+            );
     }
 
     getAllIds(): Observable<TId[]> {
@@ -274,10 +282,17 @@ export class ObservableState<T, TId> {
             return throwError('invalid_observable');
         }
 
-        const observable = this.loadingObservable.pipe(flatMap(() => sourceObservable));
-        if (isDataLoad) {
-            this.loadingObservable = observable;
-        }
+        const observable = this.loading
+            .pipe(skipWhile(loading => loading))
+            .pipe(first())
+            .pipe(
+                flatMap(() => {
+                    if (isDataLoad) {
+                        this.loading.next(true);
+                    }
+                    return sourceObservable;
+                })
+            );
 
         return observable
             .pipe(
@@ -287,6 +302,10 @@ export class ObservableState<T, TId> {
                     } else {
                         this.addToState(object);
                     }
+                    if (isDataLoad) {
+                        this.loading.next(false);
+                    }
+                    this.stateUpdatedSubject.next();
                     return object;
                 })
             )
@@ -294,6 +313,14 @@ export class ObservableState<T, TId> {
                 flatMap(object => {
                     const stateId = this.generateStateId(this.getObjectId(object));
                     return this.stateUpdated.pipe(map(() => this.state[stateId]?.data));
+                })
+            )
+            .pipe(
+                catchError(error => {
+                    if (isDataLoad) {
+                        this.loading.next(false);
+                    }
+                    return throwError(error);
                 })
             );
     }
@@ -315,10 +342,17 @@ export class ObservableState<T, TId> {
             return throwError('invalid_observable');
         }
 
-        const observable = this.loadingObservable.pipe(flatMap(() => sourceObservable));
-        if (options.isDataLoad) {
-            this.loadingObservable = observable;
-        }
+        const observable = this.loading
+            .pipe(skipWhile(loading => loading))
+            .pipe(first())
+            .pipe(
+                flatMap(() => {
+                    if (options.isDataLoad) {
+                        this.loading.next(true);
+                    }
+                    return sourceObservable;
+                })
+            );
 
         return observable
             .pipe(
@@ -331,9 +365,11 @@ export class ObservableState<T, TId> {
                             this.addToState(object);
                         }
                         if (options.isDataLoad) {
-                            this.loadingObservable = of(null);
+                            this.loading.next(false);
                         }
                     });
+                    this.stateUpdatedSubject.next();
+
                     return objects;
                 })
             )
@@ -347,6 +383,14 @@ export class ObservableState<T, TId> {
                             })
                         )
                     );
+                })
+            )
+            .pipe(
+                catchError(error => {
+                    if (options.isDataLoad) {
+                        this.loading.next(false);
+                    }
+                    return throwError(error);
                 })
             );
     }

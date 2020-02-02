@@ -376,10 +376,11 @@ export class ObservableState<T, TId> {
                         } else if (options.replaceExisting || !this.exisitsInState(stateId)) {
                             this.addToState(object);
                         }
-                        if (options.isDataLoad) {
-                            this.loading.next(false);
-                        }
                     });
+
+                    if (options.isDataLoad) {
+                        this.loading.next(false);
+                    }
                     this.stateUpdatedSubject.next();
 
                     return objects;

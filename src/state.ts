@@ -393,7 +393,7 @@ export class ObservableState<T, TId> {
                         map(() =>
                             objects.map(object => {
                                 const stateId = this.generateStateId(this.getObjectId(object));
-                                return this.state[stateId].data;
+                                return this.state[stateId]?.data;
                             })
                         )
                     );

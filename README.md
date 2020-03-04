@@ -2,6 +2,10 @@
 
 A simple and effective rxjs state management solution. Can be used on any rxjs application, currently using it with angular/ionic.
 
+DEPRECATED: I originally did this as a simple state management solution implementing some patterns and as a typescript/rxjs study. Recently I came accross Akita, and I found that it have the same kind of simplicity of use, but with much more features, so I started using Akita for my apps and I am not mantaining this anymore.
+
+This can be a good source for studying Typescript generics and observable patterns, the code is not 100% done/clean but it's easier to understand the code than more complex libraries.
+
 - [rxjs-observable-state](#rxjs-observable-state)
   - [Install](#install)
   - [Simple Example](#simple-example)

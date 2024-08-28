@@ -23,18 +23,18 @@ class ObservableState {
     ttl;
 
     event;
-    eventEmmitter;
+    eventEmitter;
     eventTarget;
 
     constructor(options) {
         this.idProperty = options.idProperty;
-        this.eventEmmitter = new EventEmitter();
+        this.eventEmitter = new EventEmitter();
         this.eventTarget = new EventTarget();
     }
 
     stateChanged(operation, id, itemState) {
         // NodeJS event emmitter
-        this.eventEmmitter.emit('state-changed', operation, id, itemState);
+        this.eventEmitter.emit('state-changed', operation, id, itemState);
 
         // JS event target
         var stateEvent = new CustomEvent('state-changed', { detail: { operation, id, itemState } });
@@ -129,9 +129,9 @@ class ObservableState {
 
 var state = new ObservableState({ idProperty: 'id' });
 
-state.eventEmmitter.on('state-changed', (operation, id, itemState) => {
+state.eventEmitter.on('state-changed', (operation, id, itemState) => {
     console.log('---------------');
-    console.log('EventEmmitter');
+    console.log('eventEmitter');
     console.log(operation);
     console.log(id);
     console.log(itemState && itemState.lastUpdated);

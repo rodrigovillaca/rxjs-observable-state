@@ -1,3 +1,6 @@
+// I wrote that to be tested using node command line as included the example with nodeJS EventEmitter.
+// To run it in the browser, comment all EventEmitter code and CustomEvent class can also be commented out. 
+
 const EventEmitter = require('events');
 
 class ItemState {
